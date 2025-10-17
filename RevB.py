@@ -187,19 +187,20 @@ with st.sidebar:
         with st.expander("Step 2. Ground Model Definition", expanded=(st.session_state.step == 2)):
             calculated_values_geometry = st.session_state.get('calculated_geometry', {})
             NO_Layer_py = st.number_input("Number of Layers", min_value=1, max_value=5, value=2, step=1)
-            # Store groundwater as elevation (z). Positive up; plotting uses reversed z.
-            GWL_py = -st.number_input("Groundwater Level (m bgl)", min_value=0, step=1)
-    
+
+            # [GW-PAUSED] Store groundwater as elevation (z). Positive up; plotting uses reversed z.
+            # GWL_py = -st.number_input("Groundwater Level (m bgl)", min_value=0, step=1)  # [GW-PAUSED]
+
             with st.form("ground_model_form"):
                 st.markdown("---")
                 columns = st.columns(NO_Layer_py)
                 layer_inputs = []
                 last_bot = None
-    
+
                 for i in range(NO_Layer_py):
                     with columns[i]:
                         st.markdown(f"**Layer {i+1}**")
-    
+
                         # ---------- Layer Top (auto + disabled for all layers) ----------
                         key_top = f"Top_{i}"
                         if i == 0:
@@ -209,16 +210,16 @@ with st.sidebar:
                             prev_bot_key = f"Bot_{i-1}"
                             prev_bot_val = last_bot if last_bot is not None else st.session_state.get(prev_bot_key, 0.0)
                             st.session_state[key_top] = prev_bot_val
-    
+
                         # Robust numeric top value (use state, not widget return when disabled)
                         top_val = float(st.session_state.get(key_top, 0.0))
                         st.number_input("Layer Top (m bgl)", key=key_top, disabled=True)
                         # -----------------------------------------------------------------
-    
+
                         # ---------- Layer Bottom (strict monotonic, positive; last locked) ----------
                         mod_height = float(calculated_values_geometry.get('ModHeight', 0.0))
                         step_sz = 0.1  # UI step for bottoms (m)
-    
+
                         if i == NO_Layer_py - 1:
                             # Lock last layer bottom to model base
                             bot_key = f"Bot_{i}"
@@ -236,14 +237,14 @@ with st.sidebar:
                             # previous bottom == top_val; require Bottom ∈ (top_val, mod_height)
                             min_allowed = max(step_sz, top_val + step_sz)       # strictly greater than previous bottom & positive
                             max_allowed = max(step_sz, mod_height - step_sz)    # strictly less than model base
-    
+
                             bot_key = f"Bot_{i}"
                             existing = st.session_state.get(bot_key, None)
                             if existing is None or not (min_allowed <= float(existing) <= max_allowed):
                                 prefill = min_allowed
                             else:
                                 prefill = float(existing)
-    
+
                             Bot_py = st.number_input(
                                 "Layer Bottom (m bgl)",
                                 key=bot_key,
@@ -255,7 +256,7 @@ with st.sidebar:
                         # Keep this so the next layer’s Top picks up this Bottom
                         last_bot = Bot_py
                         # -----------------------------------
-    
+
                         # Units: MPa → Pa; kPa → Pa; kN/m³ → N/m³
                         E_py  = st.number_input("Young's Modulus,E (MPa)", key=f"E_{i}") * 1e6
                         PR_py = st.number_input("Poisson Ratio,v", min_value=0.20, max_value=0.35, value=0.30, step=0.01, key=f"PR_{i}")
@@ -263,7 +264,7 @@ with st.sidebar:
                         Fric_py = phi
                         Coh_py = st.number_input("Cohesion,C (kPa)", key=f"Coh_{i}") * 1e3
                         Den_py = st.number_input("Density,γ (kN/m3)", key=f"Den_{i}") * 1e2
-    
+
                         # --- K0 controls (fixed vs customised) ---
                         K0_mode_i = st.selectbox(
                             "K0 Option",
@@ -271,13 +272,13 @@ with st.sidebar:
                             key=f"K0_Mode_{i}",
                             help="Submit Step 2 inputs to enable K0 customisation.",
                         )
-    
+
                         # Default from this layer's φ (used if mode == Default)
                         K0_default_i = 1 - math.sin(math.radians(phi))
-    
+
                         # Always use this key name to remain compatible with FISH export
                         user_key = f"K0_UserDefiend_{i}"
-    
+
                         if K0_mode_i == "Default":
                             # Sync UI with formula and lock it
                             st.session_state[user_key] = K0_default_i
@@ -299,19 +300,19 @@ with st.sidebar:
                                 key=user_key,
                             )
                             SRatio_py = K0_UserDefiend_i
-    
+
                         # Ensure we have the stored user/custom value for trace
                         K0_UserDefiend_i = st.session_state[user_key]
                         # -------------------------------------------------------
-    
+
                         # Derived elastic parameters (ν constrained to 0.20–0.35)
                         Bulk_py = Shear_py = None
                         if isinstance(E_py, (int, float, np.floating)) and isinstance(PR_py, (int, float, np.floating)):
                             Bulk_py  = E_py / (3 * (1 - 2 * PR_py))
                             Shear_py = E_py / (2 * (1 + PR_py))
-    
+
                         layer_inputs.append({
-                            'GWL_py': GWL_py,
+                            # 'GWL_py': GWL_py,  # [GW-PAUSED]
                             'Top_py': top_val,             # use robust numeric top
                             'Bot_py': Bot_py,
                             'E_py': E_py,
@@ -325,7 +326,7 @@ with st.sidebar:
                             'Bulk_py': Bulk_py,
                             'Shear_py': Shear_py,
                         })
-    
+
                 submitted_ground = st.form_submit_button("Submit & To Step 3: Structual Properties")
                 if submitted_ground:
                     # Enforce Top_i = Bot_{i-1} (Top_1 = 0) on submit
@@ -335,7 +336,7 @@ with st.sidebar:
                             lay['Top_py'] = 0.0
                         else:
                             lay['Top_py'] = final_layers[-1]['Bot_py']
-    
+
                         # Enforce selected K0
                         mode = lay.get('K0_Mode', 'Default')
                         phi_val = lay.get('Fric_py', 0.0)
@@ -344,13 +345,13 @@ with st.sidebar:
                         else:
                             k0_used = 1 - math.sin(math.radians(phi_val))
                         lay['SRatio_py'] = k0_used
-    
+
                         final_layers.append(lay)
-    
+
                     # Safety net: ensure last layer bottom equals model base
                     if final_layers:
                         final_layers[-1]['Bot_py'] = calculated_values_geometry.get('ModHeight', 0.0)
-    
+
                     st.session_state['ground_model'] = final_layers
                     st.session_state.step = 3
                     st.session_state.trigger_viz = True
@@ -493,17 +494,18 @@ if st.session_state.get("trigger_viz"):
         ))
 
     # Groundwater plane — stored as elevation (negative up), plot at positive depth
-    if layers:
-        gwl_elev = layers[0].get('GWL_py', None)  # e.g. -3.0 for 3 m bgl
-        if isinstance(gwl_elev, (int, float, np.floating)):
-            gwl_depth = abs(float(gwl_elev))
-            fig.add_trace(go.Mesh3d(
-                x=[-x_extent, x_extent, x_extent, -x_extent],
-                y=[0, 0, length, length],
-                z=[gwl_depth, gwl_depth, gwl_depth, gwl_depth],
-                i=[0, 0], j=[1, 2], k=[2, 3],
-                opacity=0.4, color='blue', name='Groundwater Table', showscale=False,
-            ))
+    # [GW-PAUSED] If you want to restore later, uncomment this block.
+    # if layers:
+    #     gwl_elev = layers[0].get('GWL_py', None)  # e.g. -3.0 for 3 m bgl
+    #     if isinstance(gwl_elev, (int, float, np.floating)):
+    #         gwl_depth = abs(float(gwl_elev))
+    #         fig.add_trace(go.Mesh3d(
+    #             x=[-x_extent, x_extent, x_extent, -x_extent],
+    #             y=[0, 0, length, length],
+    #             z=[gwl_depth, gwl_depth, gwl_depth, gwl_depth],
+    #             i=[0, 0], j=[1, 2], k=[2, 3],
+    #             opacity=0.4, color='blue', name='Groundwater Table', showscale=False,
+    #         ))
 
     # Model box edges
     top_model = 0.0
@@ -600,9 +602,9 @@ if st.session_state.get("trigger_viz"):
 
     fig.update_layout(
         scene=dict(
-            xaxis_title="X",
-            yaxis_title="Y",
-            zaxis_title="Z (m, negative down)",
+            xaxis_title="X (Model Width)",
+            yaxis_title="Y (Tunnel Alignment)",
+            zaxis_title="Z (Depth, negative down)",
             aspectmode='manual',
             aspectratio=aspectratio,
             xaxis=dict(range=[-x_extent, x_extent]),
@@ -770,14 +772,14 @@ if st.button("Generate FISH Code"):
                 bot_elev = -1.0 * float(bot_depth_val)  # convert depth (+) -> elevation (negative down)
                 fish_lines.append(f"\t\t\tglobal L{idx}_Bot\t\t\t= \t\t{bot_elev:.4g}")
             else:
-                # Shouldn't happen with your UI, but keep a safe fallback
                 fish_lines.append(f"\t\t\tglobal L{idx}_Bot\t\t\t= \t\tnull")
 
         # Groundwater (use first layer's value if available)
-        if GroundModel:
-            groundwater = GroundModel[0].get('GWL_py', None)
-            if isinstance(groundwater, (int, float, np.floating)):
-                fish_lines.append(f"\t\t\tglobal GWL\t\t\t= \t\t{groundwater:.4g}")
+        # [GW-PAUSED] Uncomment to restore GW export.
+        # if GroundModel:
+        #     groundwater = GroundModel[0].get('GWL_py', None)
+        #     if isinstance(groundwater, (int, float, np.floating)):
+        #         fish_lines.append(f"\t\t\tglobal GWL\t\t\t= \t\t{groundwater:.4g}")
 
         fish_lines.append(";--------------------------------------------------------------------------------------------------------------------------------")
         fish_lines.append(";Define geotechnical parameters")
@@ -806,15 +808,10 @@ if st.button("Generate FISH Code"):
 
             # Write each parameter; 'null' printed via fmt_num(None)
             for param in ["E", "PR", "Fric", "Coh", "Den", "SRatio", "Bulk", "Shear"]:
-                # Map to the stored key name
                 key = f"{param}_py"
-
                 val = layer.get(key, None)
-
-                # Enforce SRatio=0.5 when layer is undefined or SRatio missing
                 if param == "SRatio" and val is None:
                     val = 0.5
-
                 val_str = fmt_num(val)
                 fish_lines.append(f"\t\tglobal {param}_L{idx}\t\t= \t\t{val_str}")
         
@@ -826,10 +823,8 @@ if st.button("Generate FISH Code"):
             for key in ["Pipe_Stiff_py", "Pipe_th_py", "Pipe_PR_py", "Pipe_Den_py"]:
                 val = Support.get(key, None)
                 name = key.replace("_py", "")
-                # robust formatting even if a value is missing
                 fish_lines.append(f"\t\tglobal {name}\t= \t\t{fmt_num(val)}")
         else:
-            # No Step 3 inputs yet — emit placeholders so FISH still compiles
             fish_lines.append(f"\t\tglobal Pipe_Stiff\t= \t\t{fmt_num(None)}")
             fish_lines.append(f"\t\tglobal Pipe_th\t= \t\t{fmt_num(None)}")
             fish_lines.append(f"\t\tglobal Pipe_PR\t= \t\t{fmt_num(None)}")
